@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+
+<html>
+
+<head>
+<style>
+
+
+</style>
+</head>
+
+<body> 
+<!--script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/107/three.min.js"></script-->
+<script src="https://threejs.org/build/three.min.js"></script>
+<script src="https://threejs.org/examples/js/controls/OrbitControls.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/stats.js/r16/Stats.min.js"></script>
+<script src="https://code.jquery.com/jquery-2.1.4.min.js"></script>
+<script src="https://jyunming-chen.github.io/tutsplus/js/KeyboardState.js"></script>
+<!--script src="https://rawgit.com/mrdoob/three.js/master/examples/js/loaders/DDSLoader.js"></script-->
+<script src="https://raw.githack.com/mrdoob/three.js/dev/examples/js/loaders/MTLLoader.js"></script>
+<script src="https://raw.githack.com/mrdoob/three.js/dev/examples/js/loaders/OBJLoader.js"></script>
+<script>
+var renderer, scene, camera;
+var controls;
+var stats;
+var angle = 0, x = 0;
+var obj = [], mat, f=true, localPlanes = [], tank = new THREE.Object3D();
+var keyboard = new KeyboardState();
+var bullets = [], el = 0.0, flag = true;
+var pose1 = {angle: Math.PI/4+0.6};
+var pose2 = {angle: 0.6};
+var pose3 = {angle: -Math.PI/4+0.6};
+var keys = [
+  [0, pose1],
+  [0.25, pose2],
+  [0.5, pose3],
+  [0.75, pose2],
+  [1, pose1]
+];
+var T = 2;
+var clock = new THREE.Clock();
+var ts = clock.getElapsedTime()
+var intKey =[];
+
+function unitize (object, targetSize) {  
+	
+	// find bounding box of 'object'
+	var box3 = new THREE.Box3();
+	box3.setFromObject (object);
+	var size = new THREE.Vector3();
+	size.subVectors (box3.max, box3.min);
+	var center = new THREE.Vector3();
+	center.addVectors(box3.max, box3.min).multiplyScalar (0.5);
+	
+	//console.log ('center: ' + center.x + ', '+center.y + ', '+center.z );
+	//console.log ('size: ' + size.x + ', ' +  size.y + ', '+size.z );
+	
+	// uniform scaling according to objSize
+	var objSize = Math.max (size.x, size.y, size.z);
+	var scaleSet = targetSize/objSize;
+				
+	var theObject =  new THREE.Object3D();
+	theObject.add (object);
+	object.scale.set (scaleSet, scaleSet, scaleSet);
+	object.position.set (-center.x*scaleSet, -center.y*scaleSet, -center.z*scaleSet);
+	
+	return theObject;
+			
+}
+function readModel (modelName, targetSize = 40) {
+  var onProgress = function(xhr) {
+    if (xhr.lengthComputable) {
+      var percentComplete = xhr.loaded / xhr.total * 100;
+      console.log(Math.round(percentComplete, 2) + '% downloaded');
+    }
+  };
+  var onError = function(xhr) {};
+  var mtlLoader = new THREE.MTLLoader();
+  mtlLoader.setPath('models/');
+  mtlLoader.load(modelName+'.mtl', function(materials) {
+    materials.preload();
+    var objLoader = new THREE.OBJLoader();
+    objLoader.setMaterials(materials);
+    objLoader.setPath('models/');
+    objLoader.load(modelName+'.obj', function(object) {
+		
+		let theObject =  unitize (object, targetSize);
+		//theObject.add ( new THREE.BoxHelper (theObject) );
+		theObject.name = 'OBJ'+obj.length;
+		theObject.rotation.y = 0.6;
+		theObject.position.y = targetSize/6;
+		obj.push(theObject);
+		//console.log(obj[obj.length-1]);
+		//scene.add (obj[obj.length-1]);
+		
+    }, onProgress, onError);
+  });
+}
+
+class Bullet{
+	constructor(r, v, pos){
+  	//this.theta = theta;
+	let loader = new THREE.TextureLoader();
+	loader.crossOrigin = '';
+	var tex = loader.load ('https://i.imgur.com/uSmKvKo.jpg');
+    this.v = v;
+  	this.body = new THREE.Mesh(new THREE.SphereGeometry(r, 30, 30), new THREE.MeshPhongMaterial({map: tex}));
+    this.body.castShadow = true;
+	this.body.position.copy(pos);
+    this.pos = pos;
+    this.v0 = 45;
+    this.v.multiplyScalar(this.v0);
+    this.m = 1;
+  }
+  update(dt){
+  	if(this.body.position.y <= 0){
+    	scene.remove(this.body);
+    }
+  	//this.body.translateOnAxis(this.v, 1);
+    this.v.y = this.v.y - 9.8 / this.m * dt;
+    this.pos.add(this.v.clone().multiplyScalar(dt));
+    this.body.position.copy(this.pos);
+  }
+}
+init();
+animate();
+function init () {
+	
+	renderer = new THREE.WebGLRenderer();
+	document.body.appendChild (renderer.domElement);
+	var width = window.innerWidth;
+	var height = window.innerHeight;
+	renderer.setSize (width, height);
+
+	renderer.setClearColor (0x888888);
+	renderer.shadowMap.enabled = true;
+	renderer.shadowMap.type = THREE.PCFShadowMap;
+
+	scene = new THREE.Scene();
+
+
+	camera = new THREE.PerspectiveCamera (80, width/height, 1, 1000);
+	camera.position.y = 100;
+	camera.position.z = 150;
+	camera.lookAt (new THREE.Vector3(0,0,0));
+
+	controls = new THREE.OrbitControls(camera, renderer.domElement);
+
+	//document.addEventListener('resize', onWindowResize, false);
+	///////////////////////////////////////////////////////////////
+	var ambient = new THREE.AmbientLight(0x444444);
+	scene.add(ambient);
+
+
+	var spotLight = new THREE.SpotLight( 0xffffff, 1, 220, Math.PI/8 );
+	spotLight.position.set( 0, 100, 0 );
+	spotLight.target = tank;
+	scene.add( spotLight );
+
+	//readModel('Future Rin2');
+	readModel('Tank');
+	readModel('Tank');
+	var localPlane = new THREE.Plane( new THREE.Vector3( 0,  1, 0 ), -7 );
+	
+	localPlanes.push(localPlane);
+	
+	localPlane = new THREE.Plane( new THREE.Vector3( 0,  -1, 0 ), 7 );
+	localPlanes.push(localPlane);
+
+	let texture = new THREE.TextureLoader().load("https://i.imgur.com/dPBuQB9.jpg");
+	texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+	texture.repeat.set(10,10);
+	var ground = new THREE.Mesh(new THREE.PlaneGeometry(300, 300, 32), new THREE.MeshPhongMaterial({map:texture}));
+	ground.rotation.x = -Math.PI/2;
+	ground.receiveShadow = true;
+	scene.add(ground);
+	//bullets[0] = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.6, 0.6));
+	//scene.add(bullets[0])
+
+	//stats
+	stats = new Stats();
+	stats.domElement.style.position = 'absolute';
+	stats.domElement.style.top = '0px';
+	stats.domElement.style.zlndex = 100;
+	document.body.appendChild( stats.domElement );
+  
+}
+function onWindowResize() {
+  
+	var width = window.innerWidth;
+  var height = window.innerHeight;
+  camera.aspect = width / height;
+  camera.updateProjectionMatrix();
+  renderer.setSize(width, height);
+	
+}
+function keyframe(t) {
+  var s = ((t - ts) % T) / T;
+
+  for (var i = 1; i < keys.length; i++) {
+    if (keys[i][0] > s) break;
+  }
+    
+  // take i-1
+  var ii = i - 1;
+  var a = (s - keys[ii][0]) / (keys[ii + 1][0] - keys[ii][0]);
+  //console.log (a)
+  intKey = [keys[ii][1].angle * (1 - a) + keys[ii + 1][1].angle * a];
+
+}
+
+function animate() {
+	keyboard.update();
+	keyframe (clock.getElapsedTime());
+	let dt = clock.getDelta();
+	if(obj[1] !== undefined && obj[0] !== undefined){
+		if(flag){
+			obj[0].traverse(function(child){
+				if(child instanceof THREE.Mesh)
+					child.material.clippingPlanes = [localPlanes[0]];
+			});
+			obj[1].traverse(function(child){
+				if(child instanceof THREE.Mesh)
+					child.material.clippingPlanes = [localPlanes[1]];
+			});
+			tank.add(obj[0], obj[1]);
+			scene.add(tank);
+			flag = false;
+		}
+		/*if (keyboard.pressed('W')) {
+			tank.translateX(0.5);
+		}
+
+		if (keyboard.pressed('S')) {
+			tank.translateX(-0.5);
+		}
+		if (keyboard.pressed('A')) {
+			tank.rotation.y += 0.01;
+		}
+
+		if (keyboard.pressed('D')) {
+			tank.rotation.y -= 0.01;
+		}
+		if (keyboard.pressed('Q')) {
+			obj[0].rotation.y += 0.01;
+		}
+
+		if (keyboard.pressed('E')) {
+			obj[0].rotation.y -= 0.01;
+		}
+		if (keyboard.pressed('space')) {
+			if(clock.getElapsedTime() - el > 1.5){
+				el = clock.getElapsedTime();
+				let tmp = obj[0].localToWorld(new THREE.Vector3(19, 4.8, 13.6));
+				let tmp2 = obj[0].localToWorld(new THREE.Vector3(18, 4.6, 12.9));
+				let bullet = new Bullet(0.5, tmp.clone().sub(tmp2).normalize(), tmp);
+				bullets.push(bullet);
+				scene.add(bullet.body);
+			}
+		}*/
+		tank.children[0].rotation.y = intKey[0];
+		angle += 0.03;
+		tank.rotation.y = -angle+0.6-Math.PI/2;
+		tank.position.set(80*Math.cos(angle), 0,80*Math.sin(angle));
+		
+	}
+	bullets.forEach(function(element){
+		element.update(dt);
+	});
+	stats.update();
+	renderer.localClippingEnabled = true;
+	requestAnimationFrame(animate);
+	render();
+	
+}
+function render() {
+	
+	renderer.render(scene, camera);
+	
+}
+</script>
+</body>
+
+</html>
