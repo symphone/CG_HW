@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+
+<html>
+
+<head>
+<style>
+
+
+</style>
+</head>
+
+<body> 
+<!--script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/107/three.min.js"></script-->
+<script src="https://threejs.org/build/three.min.js"></script>
+<script src="https://threejs.org/examples/js/controls/OrbitControls.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/stats.js/r16/Stats.min.js"></script>
+<script src="https://code.jquery.com/jquery-2.1.4.min.js"></script>
+<script src="https://jyunming-chen.github.io/tutsplus/js/KeyboardState.js"></script>
+<!--script src="https://rawgit.com/mrdoob/three.js/master/examples/js/loaders/DDSLoader.js"></script-->
+<script src="https://raw.githack.com/mrdoob/three.js/dev/examples/js/loaders/MTLLoader.js"></script>
+<script src="https://raw.githack.com/mrdoob/three.js/dev/examples/js/loaders/OBJLoader.js"></script>
+<script>
+var camera, scene, renderer, mesh, controls, camera2;
+var keyboard = new KeyboardState();
+var clock;
+
+var car;
+var pos = new THREE.Vector3();
+var speed, angle, vel, obj, buildings = [];
+var flagUp = false, flagDown = false;
+
+/*class BuildCar{
+	constructor(obj){
+		this.mesh = new THREE.Object3D();
+		let body = new THREE.Mesh(new THREE.CylinderGeometry(5, 5, 2, 20), new THREE.MeshNormalMaterial());
+		this.mesh.add(body);
+		let pointer = new THREE.Mesh(new THREE.BoxGeometry(10, 2, 2), new THREE.MeshNormalMaterial());
+		this.mesh.add(pointer);
+		pointer.position.x = 5;
+		let boundingBox = new THREE.Mesh(new THREE.BoxGeometry(15, 5, 10, 2), new THREE.MeshBasicMaterial({wireframe:true}));
+		this.mesh.add(boundingBox);
+		boundingBox.position.x = 2.5;
+	}
+}*/
+
+(function() {
+  Math.clamp = function(val,min,max){
+    return Math.min(Math.max(val,min),max);
+    
+  }})();
+  
+init();
+animate();
+
+function unitize (object, targetSize) {  
+	
+	// find bounding box of 'object'
+	var box3 = new THREE.Box3();
+	box3.setFromObject (object);
+	var size = new THREE.Vector3();
+	size.subVectors (box3.max, box3.min);
+	var center = new THREE.Vector3();
+	center.addVectors(box3.max, box3.min).multiplyScalar (0.5);
+	
+	//console.log ('center: ' + center.x + ', '+center.y + ', '+center.z );
+	//console.log ('size: ' + size.x + ', ' +  size.y + ', '+size.z );
+	
+	// uniform scaling according to objSize
+	var objSize = Math.max (size.x, size.y, size.z);
+	var scaleSet = targetSize/objSize;
+				
+	var theObject =  new THREE.Object3D();
+	theObject.add (object);
+	object.scale.set (scaleSet, scaleSet, scaleSet);
+	object.position.set (-center.x*scaleSet, -center.y*scaleSet, -center.z*scaleSet);
+	
+	return theObject;
+			
+}
+function readModel (modelName, targetSize = 20) {
+  var onProgress = function(xhr) {
+    if (xhr.lengthComputable) {
+      var percentComplete = xhr.loaded / xhr.total * 100;
+      console.log(Math.round(percentComplete, 2) + '% downloaded');
+    }
+  };
+  var onError = function(xhr) {};
+  var mtlLoader = new THREE.MTLLoader();
+  mtlLoader.setPath('models/');
+  mtlLoader.load(modelName+'.mtl', function(materials) {
+    materials.preload();
+    var objLoader = new THREE.OBJLoader();
+    objLoader.setMaterials(materials);
+    objLoader.setPath('models/');
+    objLoader.load(modelName+'.obj', function(object) {
+		
+		let theObject =  unitize (object, targetSize);
+		//let tmp = new THREE.BoxHelper (theObject);
+		//theObject.add ( tmp );
+		//tmp.rotation.y = Math.PI/4;
+		theObject.name = 'OBJ';
+		theObject.rotation.y = Math.PI/2;
+		theObject.position.set(0, targetSize/6, 0);
+		//var axesHelper = new THREE.AxesHelper( 20 );
+		//theObject.add( axesHelper );
+		theObject.rotation.order = 'YXZ';
+		theObject.add(camera2);
+		camera2.position.set(0, 5, -30);
+		camera2.rotation.y = Math.PI;
+		obj = theObject;
+		scene.add(theObject);
+		
+    }, onProgress, onError);
+  });
+}
+
+function check_Intersection(r, c, rad){
+  
+  var rad2 = rad * rad
+  r.max.x -= c.x
+  r.max.y -= c.y
+  r.min.x -= c.x
+  r.min.y -= c.y
+  if(r.max.x < 0)
+  {
+    if(r.max.y < 0)
+    { //left down  1
+    	if(((r.max.x * r.max.x + r.max.y * r.max.y) < rad2))
+      	return 1
+      return 0
+      //return ((r.max.x * r.max.x + r.max.y * r.max.y) < rad2)
+    }
+    else if(r.min.y > 0)
+    { //left up  2
+    	if(((r.max.x * r.max.x + r.min.y * r.min.y) < rad2))
+      	return 2
+      return 0
+    	//return ((r.max.x * r.max.x + r.min.y * r.min.y) < rad2)
+    }
+    else{  //left  3
+    	if((Math.abs(r.max.x) < rad))
+      	return 3
+      return 0
+    	//return (Math.abs(r.max.x) < rad)
+    }
+  }
+  
+  else if(r.min.x > 0){
+  	if(r.max.y < 0){ //right down  4
+    	if(((r.min.x * r.min.x + r.max.y * r.max.y) < rad2))
+      	return 4
+      return 0
+    	//return ((r.min.x * r.min.x + r.max.y * r.max.y) < rad2)
+  	}
+    else if(r.min.y > 0){ //right up  5
+    	if(((r.min.x * r.min.x + r.min.y * r.min.y) < rad2))
+      	return 5
+      return 0
+  		//return ((r.min.x * r.min.x + r.min.y * r.min.y) < rad2)
+    }
+    else{  //right  6
+    	if((r.min.x < rad))
+      	return 6
+      return 0
+    	//return (r.min.x < rad)
+    }
+  }
+  else{
+  	if(r.max.y < 0){ //center down  7
+    	if((Math.abs(r.max.y) < rad))
+      	return 7
+      return 0
+      //return (Math.abs(r.max.y) < rad)
+    }
+  	else if(r.min.y > 0){ //center up  8
+    	if((r.min.y < rad))
+      	return 8
+      return 0
+      //return (r.min.y < rad)
+    }
+  	else  //center
+    	return 9
+  		//return true
+  }
+  
+}
+
+function coordinateOrigin(recMesh, r, c, rad){
+	r.max.x = 20 / 2
+  r.max.y = 20 / 2
+  r.min.x = r.max.x * -1
+  r.min.y = r.max.y * -1
+  var center = recMesh.position.clone()
+  var normalMat = new THREE.Matrix3().getNormalMatrix(recMesh.matrixWorld);
+  var xR = new THREE.Vector3(1, 0, 0)
+  xR.applyMatrix3(normalMat).normalize()
+  var yR = new THREE.Vector3(0, 0, 1)
+  yR.applyMatrix3(normalMat).normalize()
+  var cSubr = c.clone().sub(center)
+  var tmpC = new THREE.Vector3()
+  tmpC.x = cSubr.clone().dot(xR)
+  tmpC.y = cSubr.clone().dot(yR)
+  
+  /*var p1 = new THREE.Vector2(r.max.x, r.max.y).add(recMesh.position);
+  var p2 = new THREE.Vector2(r.min.x, r.max.y).add(recMesh.position);
+  var p3 = new THREE.Vector2(r.min.x, r.min.y).add(recMesh.position);
+  var p4 = new THREE.Vector2(r.max.x, r.min.y).add(recMesh.position);
+  p1.rotateAround(recMesh.position, recMesh.rotation.z);
+  p2.rotateAround(recMesh.position, recMesh.rotation.z);
+  p3.rotateAround(recMesh.position, recMesh.rotation.z);
+  p4.rotateAround(recMesh.position, recMesh.rotation.z);
+  var tmp;*/
+  var res = check_Intersection(r, tmpC, rad);
+ /* if(res == 1){
+  	tmp = p1.clone().sub(recMesh.position).normalize()
+    $('#normal').text(tmp.x.toFixed(2) + ", " + tmp.y.toFixed(2))
+  }
+  else if(res == 2){
+  	tmp = p4.clone().sub(recMesh.position).normalize()
+    $('#normal').text(tmp.x.toFixed(2) + ", " + tmp.y.toFixed(2))
+  }
+  else if(res == 3){
+  	tmp = p1.clone().add(p4).divideScalar(2).sub(recMesh.position).normalize()
+  	$('#normal').text(tmp.x.toFixed(2) + ", " + tmp.y.toFixed(2))
+  }
+  else if(res == 4){
+  	tmp = p2.clone().sub(recMesh.position).normalize()
+  	$('#normal').text(tmp.x.toFixed(2) + ", " + tmp.y.toFixed(2))
+  }
+  else if(res == 5){
+  	tmp = p3.clone().sub(recMesh.position).normalize()
+  	$('#normal').text(tmp.x.toFixed(2) + ", " + tmp.y.toFixed(2))
+  }
+  else if(res == 6){
+  	tmp = p2.clone().add(p3).divideScalar(2).sub(recMesh.position).normalize()
+  	$('#normal').text(tmp.x.toFixed(2) + ", " + tmp.y.toFixed(2))
+  }
+  else if(res == 7){
+  	tmp = p1.clone().add(p2).divideScalar(2).sub(recMesh.position).normalize()
+  	$('#normal').text(tmp.x.toFixed(2) + ", " + tmp.y.toFixed(2))
+  }
+  else if(res == 8){
+  	tmp = p3.clone().add(p4).divideScalar(2).sub(recMesh.position).normalize()
+  	$('#normal').text(tmp.x.toFixed(2) + ", " + tmp.y.toFixed(2))
+  }*/
+  
+  
+	return res
+}
+
+function creatBuilding(rad, texSrc) {
+	let loader = new THREE.TextureLoader();
+	loader.crossOrigin = "";
+	let tex = loader.load(texSrc);
+	let mesh = new THREE.Mesh(new THREE.CylinderGeometry(rad, rad, rad*2, 32), new THREE.MeshBasicMaterial({wireframe:true, visible:false}));
+	let star = new THREE.Mesh(new THREE.SphereGeometry( rad, 32, 32 ), new THREE.MeshPhongMaterial({map:tex}));
+	mesh.add(star);
+	return mesh;
+}
+
+function init() {
+
+  clock = new THREE.Clock();
+  scene = new THREE.Scene();
+
+  camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 1, 1000);
+  camera.position.z = 450;
+  camera.position.y = 150;
+  
+  camera2 = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 1, 1000);
+  
+
+  //var gridXZ = new THREE.GridHelper(200, 20, 'red', 'white');
+  //scene.add(gridXZ);
+
+  renderer = new THREE.WebGLRenderer();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.setClearColor(0x888888);
+  renderer.autoClear = false;
+
+  controls = new THREE.OrbitControls(camera, renderer.domElement);
+  
+  controls.enableKeys = false;
+  
+  document.body.appendChild(renderer.domElement);
+  ////////////////////////////////////////////////////////////////////////
+  speed = 5.0;
+  angle = 0.0;
+  up = 0.0;
+  var ambient = new THREE.AmbientLight(0xffffff);
+  scene.add(ambient);
+  	
+  //car = buildVehicle();
+  readModel('spaceship');
+  
+  buildings.push(creatBuilding(10, 'pictures/meteor3.jpg'));
+  buildings[buildings.length - 1].position.set(100, 10 ,0);
+  scene.add(buildings[buildings.length - 1]);
+  
+  buildings.push(creatBuilding(30, 'pictures/meteor2.jpg'));
+  buildings[buildings.length - 1].position.set(-100, 60 ,0);
+  scene.add(buildings[buildings.length - 1]);
+  
+  buildings.push(creatBuilding(15, 'pictures/meteor1.jpg'));
+  buildings[buildings.length - 1].position.set(100, 80 ,0);
+  scene.add(buildings[buildings.length - 1]);
+  
+  //cubemap
+  let loader = new THREE.CubeTextureLoader();
+  loader.setPath('pictures/');
+  scene.background = loader.load([
+	'left.png', 'right.png',
+	'top.png', 'bot.png',
+	'front.png', 'back.png'
+  ])
+}
+
+function update(dt) {
+	if(obj != undefined){
+		keyboard.update();
+		if ( keyboard.pressed("left") ) 
+			angle += 0.01;               
+		if ( keyboard.pressed("right") )
+			angle -= 0.01;               
+		if ( keyboard.pressed("up") )  
+			speed += 0.5;        
+		if ( keyboard.pressed("down") )  
+			speed -= 0.5;
+		if ( keyboard.pressed("space") ){
+			if( keyboard.pressed("shift") ){
+				pos.y -= 0.5;
+				obj.rotation.x = Math.PI/4;
+				flagDown = true;
+			}
+			else{
+				pos.y += 0.5;
+				obj.rotation.x = -Math.PI/4;
+				flagUp = true;
+			}
+		}
+		else
+			flagUp = flagDown = false;
+
+		speed = Math.clamp (speed, 0.1, 20.0);		
+		vel = new THREE.Vector3(speed,0,0);
+		
+		vel.applyAxisAngle (new THREE.Vector3(0,1,0), angle);
+		pos.add (vel.clone().multiplyScalar(dt));
+		
+		for(let i = 0; i < buildings.length; i++){
+			let recMax = obj.localToWorld(new THREE.Vector3(10, 0, 10));
+			let recMin = obj.localToWorld(new THREE.Vector3(-10, 0, -10));
+			let r = {max: new THREE.Vector3(recMax.x, recMax.z, 0),
+					 min: new THREE.Vector3(recMin.x, recMin.z, 0)};
+			let c = new THREE.Vector3(buildings[i].position.x, buildings[i].position.z, 0);
+			let tmp = coordinateOrigin(obj, r, c, buildings[i].geometry.parameters.radiusTop);
+			let deltaH = Math.abs(/*buildings[i].geometry.parameters.radiusTop*/+buildings[i].position.y - obj.position.y);
+			let totalH = buildings[i].geometry.parameters.radiusTop + 20/6;
+			if(tmp != 0 && deltaH <= totalH){
+				//collision
+				console.log(deltaH+" "+totalH)
+				pos.sub(vel.clone().normalize().multiplyScalar(5));
+				speed = 0.1;
+			}
+			obj.position.copy(pos);
+			obj.rotation.y = angle + Math.PI/2;
+			if(!flagUp && !flagDown){
+				obj.rotation.x = 0;
+			}
+			//camera2.lookAt(obj.position);
+			//else if(flagDown)
+			//else
+				
+			//flagUp = flagDown = false;
+		}
+	}
+}
+
+function animate() {
+
+	controls.update();
+
+	var dt = clock.getDelta();
+	
+	// car update
+	update(dt);
+	requestAnimationFrame(animate);
+	render();
+}
+
+function render() {
+	let WW = window.innerWidth, HH = window.innerHeight;
+	renderer.clear();
+	
+	renderer.setViewport(0, 0, WW / 2 - 0.5, HH);
+	camera.aspect = WW / 2 / HH;
+	camera.updateProjectionMatrix();
+	renderer.render(scene, camera2);
+
+	renderer.setViewport(WW / 2, 0, WW / 2 - 0.5, HH);
+	renderer.render(scene, camera);
+}
+
+
+
+</script>
+</body>
+
+</html>
