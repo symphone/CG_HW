@@ -29,7 +29,7 @@ body {
 
 <body> 
 <div id="info">
-  <br> HW06
+  <br> HW06-2
 </div>
 
 <script src="https://threejs.org/build/three.min.js"></script>
@@ -82,6 +82,7 @@ body {
 </script>
 <script id="fsNormal" type="x-shader/x-fragment">
   varying vec3 vNormal; // [-1,1]^3
+  //uniform vec3 cameraPos;
   void main() {    
   	vec3 color = (normalize(vNormal)+1.0)/2.; // [0,1]^3
   	gl_FragColor = vec4 (color,1);
@@ -116,15 +117,14 @@ body {
   
     vec3 sum= vec3(0.0); 
  	for (int i=0 ; i < 9; i++) { 
-       vec3 tmp=texture2D (texture, vUv+offset[i]).rgb; 
+       vec3 tmp=texture2D (texture, vUv+offset[i]).rgb;	   
        sum += tmp*kernel[i]; 
     }
 
     if ((sum.r+sum.g+sum.b)/3.0 < 0.1) // if close to (0,0,0)
   	   discard;
-    else{ 
+    else 
   	   gl_FragColor = vec4 (0,0,0, 1.0);
-	}
 	//vec3 color = texture2D (texture, vUv).rgb;
 	//gl_FragColor = vec4 (color, 1.0);
   }
@@ -148,12 +148,47 @@ body {
   		gl_FragColor = vec4 (color, 1);
   }
 </script>
+<script id="myVertexShader-toon" type="x-shader/x-vertex">
+	uniform vec3 lightpos;
+    varying vec3 eyelightdir;
+    varying vec3 eyenormal;
+    
+    varying vec4 eyepos;
+    
+    void main() {
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+
+        eyepos = modelViewMatrix * vec4 (position, 1.0);
+        vec4 eyelightpos= viewMatrix * vec4 (lightpos, 1.0);
+        eyelightdir = normalize (eyelightpos.xyz - eyepos.xyz);
+        eyenormal = normalMatrix * normal;
+    }
+</script>
+<script id="myFragmentShader-toon" type="x-shader/x-fragment">
+	varying vec3 eyelightdir;
+    varying vec3 eyenormal;
+    varying vec4 eyepos;
+    
+    uniform vec3 kcool; 
+    uniform vec3 kwarm;
+    
+    void main() {
+        float lDotn = dot (normalize (eyenormal), normalize (eyelightdir));    
+        
+        vec3 h = normalize(-normalize (eyepos.xyz) + normalize (eyelightdir));
+        float shininess = 60.0;    
+        vec3 specular = pow (dot (eyenormal, h), shininess) *vec3 (0.6,0.6,0.6);
+        
+        float k = (1.0 + lDotn)/2.0;
+        gl_FragColor = vec4(mix (kcool, kwarm, k) + specular, 1.0); // built-in: mix
+    }
+</script>
 <script>
 javascript:(function(){var script=document.createElement('script');script.onload=function(){var stats=new Stats();document.body.appendChild(stats.dom);requestAnimationFrame(function loop(){stats.update();requestAnimationFrame(loop)});};script.src='https://mrdoob.github.io/stats.js/build/stats.min.js';document.head.appendChild(script);})()
 
 var scene, renderer, camera;
 var light, light2, angle = 0, index = 0;
-var renderTarget;
+var renderTarget, subjectClone;
 
 class Table{
 	constructor(){
@@ -454,8 +489,17 @@ function init() {
   
   sceneRegular = new THREE.Scene();
   sceneRegular.background = new THREE.Color(0xffff00);
-  var subjectClone = subject.clone();
-  subjectClone.material = new THREE.MeshPhongMaterial();
+  subjectClone = subject.clone();
+  let material_toon = new THREE.ShaderMaterial({
+        uniforms: {
+		  lightpos: {type:'v3', value: new THREE.Vector3(0,150,850) },
+		  kcool: {type:'v3', value: new THREE.Vector3(0.5,0.5,0)},
+		  kwarm: {type:'v3', value: new THREE.Vector3(0.3,0,0.3)}
+		},
+		vertexShader: document.getElementById('myVertexShader-toon').textContent,
+		fragmentShader: document.getElementById('myFragmentShader-toon').textContent
+      });
+  subjectClone.material = material_toon;
   sceneRegular.add(subjectClone);
   
   var pointLight = new THREE.PointLight(0xffffff);
